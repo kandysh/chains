@@ -1,0 +1,27 @@
+{
+  "portfolio": {
+    "assets": [
+      { "id": "AAPL", "name": "Apple", "weight": 0.4 },
+      { "id": "MSFT", "name": "Microsoft", "weight": 0.3 },
+      { "id": "TLT", "name": "US 20Y Bonds", "weight": 0.3 }
+    ]
+  },
+  "performance": {
+    "period": "2024-01",
+    "portfolio_return": -0.031,
+    "volatility": 0.18,
+    "max_drawdown": -0.052,
+    "asset_contributions": [
+      { "id": "AAPL", "return_": -0.03, "contribution": -0.012 },
+      { "id": "MSFT", "return_": -0.01, "contribution": -0.003 },
+      { "id": "TLT", "return_": -0.05, "contribution": -0.015 }
+    ]
+  },
+  "macro": {
+    "inflation": { "value": 3.4, "trend": "rising" },
+    "policy_rate": { "value": 5.5, "trend": "stable" },
+    "growth": { "value": 2.1, "trend": "slowing" },
+    "yield_curve": "inverted",
+    "liquidity": "tight"
+  }
+}
