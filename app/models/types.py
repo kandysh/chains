@@ -1,7 +1,9 @@
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, model_validator
+
+# ---------- Enums ----------
 
 
 class Trend(str, Enum):
@@ -11,9 +13,24 @@ class Trend(str, Enum):
     slowing = "slowing"
 
 
+class YieldCurve(str, Enum):
+    normal = "normal"
+    inverted = "inverted"
+    flat = "flat"
+
+
+class Liquidity(str, Enum):
+    loose = "loose"
+    neutral = "neutral"
+    tight = "tight"
+
+
+# ---------- Portfolio ----------
+
+
 class Asset(BaseModel):
     id: str
-    name: str | None = None
+    name: Optional[str] = None
     weight: float = Field(..., ge=0, le=1)
 
 
@@ -23,15 +40,20 @@ class Portfolio(BaseModel):
     @model_validator(mode="after")
     def check_weights(self):
         total = sum(a.weight for a in self.assets)
-        if abs(total - 1.0) > 1e-6:
+        if round(total, 6) != 1.0:
             raise ValueError("Portfolio weights must sum to 1")
         return self
 
 
+# ---------- Performance ----------
+
+
 class AssetContribution(BaseModel):
     id: str
-    return_: float
+    return_: float = Field(..., alias="return")
     contribution: float
+
+    model_config = {"populate_by_name": True}
 
 
 class Performance(BaseModel):
@@ -40,6 +62,9 @@ class Performance(BaseModel):
     volatility: float
     max_drawdown: float
     asset_contributions: List[AssetContribution]
+
+
+# ---------- Macro ----------
 
 
 class MacroMetric(BaseModel):
@@ -51,11 +76,14 @@ class MacroState(BaseModel):
     inflation: MacroMetric
     policy_rate: MacroMetric
     growth: MacroMetric
-    yield_curve: str  # "normal" | "inverted"
-    liquidity: str  # "loose" | "neutral" | "tight"
+    yield_curve: YieldCurve
+    liquidity: Liquidity
+
+
+# ---------- Final Input ----------
 
 
 class AnalysisInput(BaseModel):
     portfolio: Portfolio
     performance: Performance
-    macro: MacroState
+    macro: Optional[MacroState] = None
