@@ -55,3 +55,9 @@ dmypy.json
 
 # Logs
 *.log
+
+# Trade Confirmation System
+*.db
+uploads/*.pdf
+!uploads/.gitkeep
+confirmations.db
