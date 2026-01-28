@@ -18,6 +18,25 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # Redis Configuration
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+    redis_password: str = None
+
+    # Storage Configuration
+    storage_type: str = "local"  # 'local' or 's3'
+    storage_path: str = "storage"  # For local storage
+    s3_bucket_name: str = "confirmations"
+    s3_endpoint_url: str = None
+    aws_access_key_id: str = None
+    aws_secret_access_key: str = None
+    aws_region: str = "us-east-1"
+
+    # Job Configuration
+    job_timeout: str = "10h"
+    max_retries: int = 3
+
     class Config:
         env_file = ".env"
         case_sensitive = False
