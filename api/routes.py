@@ -7,7 +7,8 @@ FastAPI routes for the trade confirmation system.
 
 import os
 from typing import List
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks
+from datetime import datetime
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database.db import (
     get_db,
@@ -21,92 +22,98 @@ from orchestrator import AgenticOrchestrator
 from utils.helpers import generate_confirmation_id, sanitize_filename
 from models.schemas import ConfirmationResponse
 from utils.logging_config import get_logger
+from queue.config import get_queue
+from queue.tasks import process_confirmation
+from storage import get_storage
 
 logger = get_logger(__name__)
 router = APIRouter()
 
 
-# Background task function
-def process_confirmation_task(
-    confirmation_id: str, pdf_path: str, orchestrator: AgenticOrchestrator, db: Session
-):
-    """
-    Background task to process a confirmation.
-
-    This runs asynchronously so the API can return immediately.
-
-    TODO: Implement this function
-    Steps:
-    1. Try to process:
-       - result = orchestrator.process_confirmation(pdf_path, confirmation_id)
-    2. Handle any errors:
-       - If exception occurs, update confirmation status to 'FAILED'
-       - Log the error
-    3. Close DB session when done
-    """
-    # TODO: Call orchestrator.process_confirmation()
-    # TODO: Handle errors and update DB accordingly
-    # TODO: Log completion
-    pass
-
-
 @router.post("/confirmations/process")
-async def process_confirmation(
-    background_tasks: BackgroundTasks,
+async def process_confirmation_endpoint(
     file: UploadFile = File(...),
-    orchestrator: AgenticOrchestrator = Depends(get_orchestrator),
     db: Session = Depends(get_db),
 ):
     """
-    Upload a PDF and start processing it.
+    Upload a PDF and start processing it asynchronously via RQ.
 
-    Returns immediately with a confirmation ID. Processing happens in background.
+    Returns immediately with a confirmation ID. Processing happens in background
+    via Redis Queue worker.
 
     Args:
         file: PDF file upload
-        orchestrator: Orchestrator instance (injected)
         db: Database session (injected)
 
     Returns:
         {
             'confirmation_id': str,
-            'status': 'processing',
+            'job_id': str,
+            'status': 'queued',
             'message': str
         }
-
-    TODO: Implement this endpoint
-    Steps:
-    1. Validate file type:
-       - Check file.content_type == 'application/pdf'
-       - Or check filename ends with '.pdf'
-       - If invalid, raise HTTPException(400, "Only PDF files allowed")
-    2. Generate confirmation ID:
-       - confirmation_id = generate_confirmation_id()
-    3. Save uploaded file:
-       - Sanitize filename
-       - Save to uploads/ directory
-       - Store path as pdf_path
-    4. Create database record:
-       - Create Confirmation with status=ConfirmationStatus.PENDING
-       - Set pdf_filename
-       - Commit to database
-    5. Add background task:
-       - background_tasks.add_task(process_confirmation_task, confirmation_id, pdf_path, orchestrator, db)
-    6. Return response:
-       - {confirmation_id, status: 'processing', message: 'Processing started'}
-
-    HINT: Use sanitize_filename from utils.helpers
-    HINT: Make sure uploads/ directory exists
     """
     logger.info(f"Received file upload: {file.filename}")
 
-    # TODO: Validate file type
-    # TODO: Generate confirmation_id
-    # TODO: Save file to uploads/
-    # TODO: Create Confirmation record in DB
-    # TODO: Add background task
-    # TODO: Return response
-    pass
+    # Validate file type
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files allowed")
+
+    # Generate confirmation ID
+    confirmation_id = generate_confirmation_id()
+
+    # Read file data
+    file_data = await file.read()
+
+    # Store file using storage backend
+    storage = get_storage()
+    storage_path = f"confirmations/{confirmation_id}/{sanitize_filename(file.filename)}"
+
+    try:
+        storage.put(storage_path, file_data)
+        logger.info(f"File stored at: {storage_path}")
+    except Exception as e:
+        logger.error(f"Failed to store file: {str(e)}")
+        raise HTTPException(500, f"Failed to store file: {str(e)}")
+
+    # Create database record
+    confirmation = Confirmation(
+        id=confirmation_id,
+        pdf_filename=file.filename,
+        status=ConfirmationStatus.PENDING,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(confirmation)
+    db.commit()
+    db.refresh(confirmation)
+
+    # Queue the processing job
+    try:
+        queue = get_queue("processing")
+        job = queue.enqueue(
+            process_confirmation,
+            confirmation_id=confirmation_id,
+            file_path=storage_path,
+            metadata={"original_filename": file.filename},
+            job_timeout="10h",
+        )
+
+        logger.info(f"Queued processing job {job.id} for confirmation {confirmation_id}")
+
+        return {
+            "confirmation_id": confirmation_id,
+            "job_id": job.id,
+            "status": "queued",
+            "message": "Processing started. Check status with GET /api/confirmations/{confirmation_id}",
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to queue processing job: {str(e)}")
+        # Update confirmation status to failed
+        confirmation.status = ConfirmationStatus.FAILED
+        db.commit()
+        raise HTTPException(500, f"Failed to queue processing: {str(e)}")
 
 
 @router.get("/confirmations/{confirmation_id}")
@@ -298,3 +305,69 @@ async def get_all_aliases():
     # TODO: Get all aliases
     # TODO: Return aliases
     pass
+
+
+# Queue/Job Monitoring Endpoints
+
+
+@router.get("/queue/status")
+async def get_queue_status():
+    """
+    Get status of all RQ queues.
+
+    Returns:
+        Queue status with job counts
+    """
+    try:
+        from queue.config import get_all_queues
+
+        queues = get_all_queues()
+        status = {}
+
+        for queue_name, queue in queues.items():
+            status[queue_name] = {
+                "count": len(queue),
+                "started": len(queue.started_job_registry),
+                "finished": len(queue.finished_job_registry),
+                "failed": len(queue.failed_job_registry),
+            }
+
+        return {
+            "status": "ok",
+            "queues": status,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get queue status: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    """
+    Get status of a specific job.
+
+    Args:
+        job_id: RQ job ID
+
+    Returns:
+        Job status and metadata
+    """
+    try:
+        from queue.config import RedisConfig
+        from rq.job import Job
+
+        redis_conn = RedisConfig.get_redis_connection()
+        job = Job.fetch(job_id, connection=redis_conn)
+
+        return {
+            "job_id": job.id,
+            "status": job.get_status(),
+            "result": job.result,
+            "exc_info": job.exc_info,
+            "created_at": job.created_at,
+            "started_at": job.started_at,
+            "ended_at": job.ended_at,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get job status: {str(e)}")
+        raise HTTPException(404, f"Job not found: {job_id}")
