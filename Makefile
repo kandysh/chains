@@ -1,36 +1,40 @@
-.PHONY: help install run test lint format type-check dev clean
+.PHONY: help install up down api processor test lint format clean
 
 help:
-	@echo "Available commands:"
-	@echo "  make install      - Install dependencies"
-	@echo "  make dev          - Run development server"
-	@echo "  make test         - Run tests"
-	@echo "  make test-cov     - Run tests with coverage"
-	@echo "  make lint         - Lint code"
-	@echo "  make format       - Format code with Black"
-	@echo "  make type-check   - Run type checking"
-	@echo "  make clean        - Remove cache files"
+	@echo "Trade Reconciliation Platform"
+	@echo ""
+	@echo "  make up           Start all services (Docker Compose)"
+	@echo "  make down         Stop all services"
+	@echo "  make api          Run API service locally (port 8000)"
+	@echo "  make processor    Run Processor service locally (port 8001)"
+	@echo "  make test         Run tests"
+	@echo "  make lint         Lint with ruff"
+	@echo "  make format       Format with black"
+	@echo "  make clean        Remove cache files"
 
 install:
-	poetry install
+	pip install -r requirements.txt
 
-dev:
-	poetry run uvicorn app.main:app --reload
+up:
+	docker compose up --build
+
+down:
+	docker compose down
+
+api:
+	uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+processor:
+	python -m app.processor.worker
 
 test:
-	poetry run pytest
-
-test-cov:
-	poetry run pytest --cov=app --cov-report=html
+	pytest tests/ -v
 
 lint:
-	poetry run ruff check .
+	ruff check app/ tests/
 
 format:
-	poetry run black .
-
-type-check:
-	poetry run mypy app
+	black app/ tests/
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

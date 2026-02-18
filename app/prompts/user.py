@@ -1,3 +1,0 @@
-USER_PROMPT = """
-{text}
-"""

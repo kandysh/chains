@@ -1,48 +1,54 @@
-"""Configuration management for the application."""
-
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings."""
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "Chains API"
-    app_version: str = "0.1.0"
-    debug: bool = False
+    # API
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    processor_port: int = 8001
+    secret_key: str = Field(default="changeme", description="JWT signing secret")
+    jwt_algorithm: str = "HS256"
 
-    # OpenAI
-    openai_api_key: str = ""
+    # Database (PostgreSQL)
+    database_url: str = (
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/trade_recon"
+    )
 
-    # Server
-    host: str = "0.0.0.0"
-    port: int = 8000
+    # Redis
+    redis_url: str = "redis://localhost:6379"
 
-    # Redis Configuration
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_db: int = 0
-    redis_password: str = None
-
-    # Storage Configuration
-    storage_type: str = "local"  # 'local' or 's3'
-    storage_path: str = "storage"  # For local storage
-    s3_bucket_name: str = "confirmations"
-    s3_endpoint_url: str = None
-    aws_access_key_id: str = None
-    aws_secret_access_key: str = None
+    # AWS / S3
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
     aws_region: str = "us-east-1"
+    s3_bucket: str = "trade-recon"
+    s3_upload_prefix: str = "uploads"
+    presigned_url_expiry: int = 900  # 15 minutes
 
-    # Job Configuration
-    job_timeout: str = "10h"
-    max_retries: int = 3
+    # LLM
+    openai_api_key: str = ""
+    llm_model: str = "gpt-4o"
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # Matching thresholds
+    fuzzy_high_confidence: float = 0.90
+    fuzzy_ambiguous_min: float = 0.70
+
+    # Redis stream / consumer group names
+    processing_stream: str = "processing:queue"
+    consumer_group: str = "processor-group"
+    consumer_name: str = "processor-1"
+    stream_read_count: int = 1
+    stream_block_ms: int = 5000  # 5s long-poll
+
+    # Logging
+    log_level: str = "INFO"
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
     return Settings()

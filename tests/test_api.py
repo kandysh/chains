@@ -1,4 +1,4 @@
-"""API endpoint tests."""
+"""Smoke tests for the API service."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,19 +8,26 @@ from app.main import app
 
 @pytest.fixture
 def client():
-    """Create test client."""
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def test_health(client):
-    """Test health check endpoint."""
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
 
 
-def test_root(client):
-    """Test root endpoint."""
-    response = client.get("/api/v1/")
-    assert response.status_code == 200
-    assert "message" in response.json()
+def test_process_requires_auth(client):
+    resp = client.post(
+        "/process",
+        json={
+            "booking_excel_s3_key": "uploads/u/x/bookings.xlsx",
+            "confirmation_pdf_s3_key": "uploads/u/x/confirms.pdf",
+        },
+    )
+    assert resp.status_code in (401, 403)
+
+
+def test_upload_urls_requires_auth(client):
+    resp = client.get("/upload-urls", params={"filenames": "bookings.xlsx"})
+    assert resp.status_code in (401, 403)

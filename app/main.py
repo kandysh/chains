@@ -1,36 +1,43 @@
-"""Main application entry point."""
+"""FastAPI API service — Port 8000.
+
+Responsibilities: presigned URL generation, job submission, SSE streaming,
+result serving, user confirmations. No file I/O, no LLM calls.
+"""
+
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 
 from app.config import get_settings
-from app.api import router
+from app.routes import process, upload
+from app.services import db, redis_client
 
-
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan events."""
     # Startup
-    print(f"Starting {settings.app_name} v{settings.app_version}")
+    logging.basicConfig(level=settings.log_level)
+    logger.info("API service starting up")
+    await db.init_db()
+    await redis_client.init_redis()
     yield
     # Shutdown
-    print("Shutting down application")
+    logger.info("API service shutting down")
+    await redis_client.close_redis()
 
 
 def create_app() -> FastAPI:
-    """Create and configure FastAPI application."""
     app = FastAPI(
-        title=settings.app_name,
-        version=settings.app_version,
-        debug=settings.debug,
+        title="Trade Reconciliation Platform — API",
+        version="1.0.0",
         lifespan=lifespan,
     )
 
-    # CORS middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -39,13 +46,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Include routers
-    app.include_router(router.api_router)
+    app.include_router(upload.router)
+    app.include_router(process.router)
 
-    # Health check
     @app.get("/health")
     async def health() -> dict:
-        return {"status": "ok"}
+        return {"status": "ok", "service": "api"}
 
     return app
 
